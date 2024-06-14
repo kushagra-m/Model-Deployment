@@ -1,0 +1,14 @@
+mne==1.7.0
+numpy==1.25.2
+matplotlib==3.7.1
+scipy==1.11.4
+scikit-image==0.19.3
+scikit-learn==1.2.2
+pickle5
+cloudpickle==2.2.1
+jsonpickle==3.0.4
+pickleshare==0.7.5
+tensorflow
+tensorflow-io
+tensorrt
+keras
