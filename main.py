@@ -15,70 +15,86 @@ Original file is located at
 # !pip install mne
 
 import mne
+import base64
 import os
-os.environ['TF_DISABLE_TFTRT'] = '1'
 import numpy as np
+import tensorflow as tf
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 import scipy.io
 from mne.time_frequency import tfr_array_morlet
-from scipy.stats import skew, kurtosis, entropy
+from scipy.stats import skew
+from scipy.stats import kurtosis
+from scipy.stats import entropy
 import tensorflow as tf
+from tensorflow import keras
 from tensorflow.keras.layers import LSTM, Dense, BatchNormalization, Softmax, Dropout, Bidirectional
-from tensorflow.keras.models import Sequential
 from sklearn.decomposition import PCA
 import sklearn.model_selection
 import pickle
+from tensorflow.keras.models import load_model
+from fastapi import FastAPI
+from pydantic import BaseModel
+import json
+import uvicorn
+from pyngrok import ngrok
+from fastapi.middleware.cors import CORSMiddleware
+import nest_asyncio
+import json
+from fastapi import File, UploadFile
+from fastapi.responses import FileResponse
+
+
 
 
 
 # !pip freeze
 
-def prepare_data_training(path):
-    raw = mne.io.read_raw_eeglab(path, preload=True)
-    tmp = path[23]+path[24]
-    person = int(tmp)
-    label = 0
-    if person <= 36:
-      label = 1
-    raw.drop_channels(['Fz', 'Pz', 'Cz'])
-    #EPOCHING
-    epochs = mne.make_fixed_length_epochs(raw, duration=2, overlap = 1, preload=False)
-    data = epochs.get_data()
-    #FILTERING
-    data = mne.filter.filter_data(data, raw.info['sfreq'], 0.5, 45)
-    label_array = np.full(data.shape[0], label)
-    #SCALING
-    scaler_object = mne.decoding.Scaler(info = raw.info)
-    scaler_object.fit(data)
-    data = scaler_object.transform(data)
-    #PCA
-    data_2d = np.reshape(data, (data.shape[0]*data.shape[1], -1))
-    pca = PCA(n_components = 100)
-    data_2d_pca = pca.fit_transform(data_2d)
-    data = np.reshape(data_2d_pca, (data.shape[0], data.shape[1], -1))
-    data = np.transpose(data, (0, 2, 1))
-    return data, label_array
+# def prepare_data_training(path):
+#     raw = mne.io.read_raw_eeglab(path, preload=True)
+#     tmp = path[23]+path[24]
+#     person = int(tmp)
+#     label = 0
+#     if person <= 36:
+#       label = 1
+#     raw.drop_channels(['Fz', 'Pz', 'Cz'])
+#     #EPOCHING
+#     epochs = mne.make_fixed_length_epochs(raw, duration=2, overlap = 1, preload=False)
+#     data = epochs.get_data()
+#     #FILTERING
+#     data = mne.filter.filter_data(data, raw.info['sfreq'], 0.5, 45)
+#     label_array = np.full(data.shape[0], label)
+#     #SCALING
+#     scaler_object = mne.decoding.Scaler(info = raw.info)
+#     scaler_object.fit(data)
+#     data = scaler_object.transform(data)
+#     #PCA
+#     data_2d = np.reshape(data, (data.shape[0]*data.shape[1], -1))
+#     pca = PCA(n_components = 100)
+#     data_2d_pca = pca.fit_transform(data_2d)
+#     data = np.reshape(data_2d_pca, (data.shape[0], data.shape[1], -1))
+#     data = np.transpose(data, (0, 2, 1))
+#     return data, label_array
 
-def prepare_data_testing(path):
-    raw = mne.io.read_raw_eeglab(path, preload=True)
-    raw.drop_channels(['Fz', 'Pz', 'Cz'])
-    #EPOCHING
-    epochs = mne.make_fixed_length_epochs(raw, duration=2, overlap = 1, preload=False)
-    data = epochs.get_data()
-    #FILTERING
-    data = mne.filter.filter_data(data, raw.info['sfreq'], 0.5, 45)
-    #SCALING
-    scaler_object = mne.decoding.Scaler(info = raw.info)
-    scaler_object.fit(data)
-    data = scaler_object.transform(data)
-    #PCA
-    data_2d = np.reshape(data, (data.shape[0]*data.shape[1], -1))
-    pca = PCA(n_components = 100)
-    data_2d_pca = pca.fit_transform(data_2d)
-    data = np.reshape(data_2d_pca, (data.shape[0], data.shape[1], -1))
-    data = np.transpose(data, (0, 2, 1))
-    return data
+# def prepare_data_testing(path):
+#     raw = mne.io.read_raw_eeglab(path, preload=True)
+#     raw.drop_channels(['Fz', 'Pz', 'Cz'])
+#     #EPOCHING
+#     epochs = mne.make_fixed_length_epochs(raw, duration=2, overlap = 1, preload=False)
+#     data = epochs.get_data()
+#     #FILTERING
+#     data = mne.filter.filter_data(data, raw.info['sfreq'], 0.5, 45)
+#     #SCALING
+#     scaler_object = mne.decoding.Scaler(info = raw.info)
+#     scaler_object.fit(data)
+#     data = scaler_object.transform(data)
+#     #PCA
+#     data_2d = np.reshape(data, (data.shape[0]*data.shape[1], -1))
+#     pca = PCA(n_components = 100)
+#     data_2d_pca = pca.fit_transform(data_2d)
+#     data = np.reshape(data_2d_pca, (data.shape[0], data.shape[1], -1))
+#     data = np.transpose(data, (0, 2, 1))
+#     return data
 
 # #DATA PREPARATION
 # main_path = "/content/ds004504"
@@ -95,10 +111,9 @@ def prepare_data_testing(path):
 # print(y_data.shape)
 
 # x_data_train, x_data_val, y_data_train, y_data_val = sklearn.model_selection.train_test_split(x_data, y_data, train_size = 0.60, random_state=42, shuffle=True)
-
 # #MODEL
 # model = keras.Sequential()
-# model.add(keras.Input(shape = x_data_train[0].shape, name='input'))
+# model.add(keras.Input(shape = (100, 16), name='input'))
 # model.add(LSTM(8, return_sequences = True, name = 'lstm1'))
 # model.add(Dropout(0.2, name='dropout1'))
 # model.add(LSTM(8, name = 'lstm2'))
@@ -111,17 +126,70 @@ def prepare_data_testing(path):
 # history = model.fit(x_data_train, y_data_train, epochs = 5, validation_data = (x_data_val, y_data_val))
 # print(history)
 
-with open('finalized_model.sav', 'rb') as model_file:
-  model = pickle.load(model_file)
+# model = model.load_weights('weights')
+
+def prepare_data_testing(path):
+    if path.endswith('.edf'):
+      raw = mne.io.read_raw_edf(path, preload=True)
+    elif path.endswith('.set'):
+      raw = mne.io.read_raw_eeglab(path, preload=True)
+    if 'FZ-AVG' in raw.ch_names:
+      raw.drop_channels(['FZ-AVG'])
+    elif 'Fz' in raw.ch_names:
+      raw.drop_channels(['Fz'])
+    if 'PZ-AVG' in raw.ch_names:
+      raw.drop_channels(['PZ-AVG'])
+    elif 'Pz' in raw.ch_names:
+      raw.drop_channels(['Pz'])
+    if 'CZ-AVG' in raw.ch_names:
+      raw.drop_channels(['CZ-AVG'])
+    elif 'Cz' in raw.ch_names:
+      raw.drop_channels(['Cz'])
+    if 'EKG' in raw.ch_names:
+      raw.drop_channels(['EKG'])
+    if 'Photic' in raw.ch_names:
+      raw.drop_channels(['Photic'])
+    #EPOCHING
+    epochs = mne.make_fixed_length_epochs(raw, duration=5, overlap = 2.5, preload=False)
+    data = epochs.get_data()
+    #FILTERING
+    data = mne.filter.filter_data(data, raw.info['sfreq'], 0.5, 45)
+    #SCALING
+    scaler_object = mne.decoding.Scaler(info = raw.info)
+    scaler_object.fit(data)
+    data = scaler_object.transform(data)
+    #PCA
+    data_2d = np.reshape(data, (data.shape[0]*data.shape[1], -1))
+    pca = PCA(n_components = 100)
+    data_2d_pca = pca.fit_transform(data_2d)
+    data = np.reshape(data_2d_pca, (data.shape[0], data.shape[1], -1))
+    data = np.transpose(data, (0, 2, 1))
+    return data
+
+model = tf.keras.models.load_model('rp1_model.keras')
+
+def gen_plot(path_test):
+  if path_test.endswith('.edf'):
+    raw = mne.io.read_raw_edf(path_test, preload=True)
+  elif path_test.endswith('.set'):
+    raw = mne.io.read_raw_eeglab(path_test, preload=True)
+  data = raw.get_data()
+  data_mean = np.mean(data, axis=0)
+  plt.figure(figsize=(8,4), facecolor='xkcd:charcoal grey')
+  plt.plot(data_mean, color="xkcd:orangey yellow")
+  plt.axis('off')
+  plt.xlim(0, data_mean.shape[0]/2)
+  plt.savefig("working/plot.png")
+  return "working/plot.png"
 
 def make_prediction(path_test):
   data_test= prepare_data_testing(path_test)
   y_pred = np.argmax(model.predict(data_test), axis=1)
   mean = np.mean(y_pred)
   if mean < 0.5:
-    return "CN"
+    return {"prediction": f"Alzheimer's Negative with confidence: {(1-mean)*100: .2f}%"}
   else:
-    return "AD"
+    return {"prediction": f"Alzheimer's Positive with confidence: {mean*100: .2f}%"}
 
 
 
@@ -186,93 +254,40 @@ def make_prediction(path_test):
 # import os
 # from typing import Annotated
 
-# app = FastAPI()
+app = FastAPI()
 
-# @app.get('/')
-# def index():
-#     return {'message': 'This is the homepage of the API shshsh'}
+@app.get('/')
+def index():
+    return {'message': 'This is the homepage of the API shshsh'}
 
-# # Define the directory where uploaded files will be saved
-# UPLOAD_DIR = "/content/working/"
+# Define the directory where uploaded files will be saved
+UPLOAD_DIR = "/app/working/"
 
-# # Create the upload directory if it doesn't exist
-# os.makedirs(UPLOAD_DIR, exist_ok=True)
+# Create the upload directory if it doesn't exist
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-# @app.post("/pred")
-# def get_pred(file: UploadFile = File(...)):
-#     try:
-#         contents = file.file.read()
-#         with open(file.filename, 'wb') as f:
-#             f.write(contents)
-#     except Exception:
-#         return {"message": "There was an error uploading the file"}
-#     finally:
-#         file.file.close()
-#     file_path = file.filename
-#     pred_name = make_prediction(file_path)
-#     return {'prediction': pred_name}
+@app.post("/pred")
+def get_pred(file: UploadFile = File(...)):
+    try:
+        contents = file.file.read()
+        with open(file.filename, 'wb') as f:
+            f.write(contents)
+    except Exception:
+        return {"message": "There was an error uploading the file"}
+    finally:
+        file.file.close()
+    file_path = file.filename
+    pred_name = make_prediction(file_path)
+    plot_path = gen_plot(file_path)
+    with open(plot_path, "rb") as image_file:
+      image_data = image_file.read()
 
-# !ngrok config add-authtoken 2fm7WpiU9aYuOFVcGxtAxakHINr_5mims9zbYPQNmgXHoYH1C
+    encoded_image = base64.b64encode(image_data).decode("utf-8")
+    return {'prediction': pred_name, 'image': encoded_image}
 
-# # ngrok_tunnel = ngrok.connect(8000)
-# # print('Public URL: ', ngrok_tunnel.public_url)
-# # nest_asyncio.apply()
-# # uvicorn.run(app, port=8000)
 
-# port = 8000
-# ngrok_tunnel = ngrok.connect(port)
 
-# # where we can visit our fastAPI app
-# print('Public URL:', ngrok_tunnel.public_url)
-# nest_asyncio.apply()
 
-# # finally run the app
-# uvicorn.run(app, port=port)
 
-# # folder_path = '/content/AD/AD1'
 
-# # data_list = []
 
-# # for file_name in os.listdir(folder_path):
-# #   if file_name.endswith('.mat'):
-# #     file_path = os.path.join(folder_path, file_name)
-# #     mat_data = scipy.io.loadmat(file_path)
-# #     data_array = mat_data['export']
-# #     data_array = np.transpose(data_array)
-# #     data_list.append(data_array)
-
-# data = np.concatenate(data_list, axis=1)
-# print(data.shape)
-# path = '/content/ds004504/sub-001/eeg/sub-001_task-eyesclosed_eeg.set'
-# raw = mne.io.read_raw_eeglab(path, preload=True)
-# tmp = path[23]+path[24]
-# person = int(tmp)
-# label = 0
-# if person <= 36:
-#   label = 1
-# raw.drop_channels(['Fz', 'Pz', 'Cz'])
-# epochs = mne.make_fixed_length_epochs(raw, duration=2, preload=False)
-
-# data = epochs.get_data()
-# label_array = np.full(data.shape[0], label)
-# print(data.shape)
-
-# print(raw.info)
-
-# scaler_object = mne.decoding.Scaler(info = raw.info)
-
-# scaler_object.fit(data)
-
-# data = scaler_object.transform(data)
-
-# print(data.shape)
-
-# from sklearn.decomposition import PCA
-
-# data_2d = np.reshape(data, (data.shape[0]*data.shape[1], -1))
-# print(data_2d.shape)
-# pca = PCA(n_components = 100)
-# data_2d_pca = pca.fit_transform(data_2d)
-# data = np.reshape(data_2d_pca, (data.shape[0], data.shape[1], -1))
-# data = np.transpose(data, (0, 2, 1))
-# print(data.shape)
